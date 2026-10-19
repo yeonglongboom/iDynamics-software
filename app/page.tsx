@@ -2,6 +2,9 @@
 import { useEffect, useState } from "react";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { usernameEmail } from "../lib/accounts.mjs";
+import ReferenceLibrary from "./reference-library";
+import { extractPdf } from "../lib/pdf";
+import { applyReferenceChecks } from "../lib/reference-checks.mjs";
 import { reviewText } from "../lib/review.mjs";
 type Rule = { id: number; training_months: number };
 type Result = ReturnType<typeof reviewText>;
@@ -144,53 +147,42 @@ export default function Home() {
   async function check(file: File) {
     setResult(undefined);
     if (!rule) throw Error("Rules have not loaded.");
-    if (file.size > 10 * 1024 * 1024) throw Error("Maximum PDF size is 10 MB.");
-    const pdfjs = await import("pdfjs-dist");
-    pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
-    const doc = await pdfjs.getDocument({
-      data: new Uint8Array(await file.arrayBuffer()),
-    }).promise;
-    try {
-      if (doc.numPages > 30) throw Error("Maximum length is 30 pages.");
-      const pages = [];
-      for (let n = 1; n <= doc.numPages; n++) {
-        const page = await doc.getPage(n),
-          content = await page.getTextContent();
-        pages.push(
-          content.items
-            .map((item) =>
-              "str" in item
-                ? item.str + ("hasEOL" in item && item.hasEOL ? "\n" : " ")
-                : "",
-            )
-            .join(""),
-        );
-      }
-      const checked = reviewText(pages, rule.training_months);
-      setResult(checked);
-      const {
-        data: { user },
-      } = await db().auth.getUser();
-      if (!user) throw Error("Please sign in again.");
-      const saved = await db().from("reviews").insert({
+    const pages = await extractPdf(file);
+    const references = await db().rpc("active_reference_checks");
+    if (references.error)
+      throw Error(
+        "Reference checks could not be loaded. Complete the library database setup before reviewing.",
+      );
+    const checked = reviewText(pages, rule.training_months);
+    checked.findings.push(
+      ...applyReferenceChecks(pages, references.data ?? []),
+    );
+    if (checked.findings.some((f) => f.error)) checked.status = "Rejected";
+    setResult(checked);
+    const {
+      data: { user },
+    } = await db().auth.getUser();
+    if (!user) throw Error("Please sign in again.");
+    const saved = await db()
+      .from("reviews")
+      .insert({
         user_id: user.id,
         filename: file.name,
         rule_version: rule.id,
         status: checked.status,
         findings: checked.findings,
+        reference_check_ids: (references.data ?? []).map((c) => c.id),
+        reference_checks_snapshot: references.data ?? [],
       });
-      if (saved.error)
-        throw Error(
-          "Review displayed but could not be saved: " + saved.error.message,
-        );
-      setMessage(
-        "Review saved using rule version " +
-          rule.id +
-          ". PDF remains on your device.",
+    if (saved.error)
+      throw Error(
+        "Review displayed but could not be saved: " + saved.error.message,
       );
-    } finally {
-      await doc.loadingTask.destroy();
-    }
+    setMessage(
+      "Review saved using rule version " +
+        rule.id +
+        ". PDF remains on your device.",
+    );
   }
   function passwordForm() {
     return (
@@ -362,6 +354,7 @@ export default function Home() {
                 </p>
               </section>
             </div>
+            {role === "admin" && <ReferenceLibrary client={db()} />}
             {role === "admin" && (
               <section>
                 <h2>Admin · Rules & access</h2>
