@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { usernameEmail } from "../lib/accounts.mjs";
 import { reviewText } from "../lib/review.mjs";
 type Rule = { id: number; training_months: number };
 type Result = ReturnType<typeof reviewText>;
@@ -8,7 +9,9 @@ let client: SupabaseClient | undefined;
 function db() {
   if (!client) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL,
-      key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      key =
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!url || !key)
       throw Error(
         "Supabase connection is not configured. Contact your administrator.",
@@ -19,8 +22,18 @@ function db() {
 }
 export default function Home() {
   const [email, setEmail] = useState(""),
-    [code, setCode] = useState(""),
-    [sent, setSent] = useState(false),
+    [password, setPassword] = useState(""),
+    [newPassword, setNewPassword] = useState(""),
+    [currentPassword, setCurrentPassword] = useState(""),
+    [temporary, setTemporary] = useState(""),
+    [accountList, setAccountList] = useState<
+      {
+        email: string;
+        role: string;
+        active: boolean;
+        must_change_password: boolean;
+      }[]
+    >([]),
     [role, setRole] = useState(""),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
@@ -40,7 +53,7 @@ export default function Home() {
     }
     const member = await s
       .from("members")
-      .select("role")
+      .select("role,active,must_change_password")
       .eq("email", user.email?.toLowerCase())
       .single();
     if (member.error || !member.data) {
@@ -48,6 +61,14 @@ export default function Home() {
       throw Error(
         "Your account is not on the team access list, or database setup is incomplete.",
       );
+    }
+    if (!member.data.active) {
+      setRole("");
+      throw Error("Account disabled. Contact your administrator.");
+    }
+    if (member.data.must_change_password) {
+      setRole("change-password");
+      return;
     }
     setRole(member.data.role);
     const r = await s
@@ -88,26 +109,37 @@ export default function Home() {
       setBusy(false);
     }
   }
+  async function accountAction(
+    actionName: string,
+    extra: Record<string, string> = {},
+  ) {
+    const {
+      data: { session },
+    } = await db().auth.getSession();
+    const response = await fetch("/api/accounts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({ action: actionName, ...extra }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw Error(data.error || "Account operation failed.");
+    if (data.members) setAccountList(data.members);
+    if (data.message) setMessage(data.message);
+  }
   async function signIn() {
-    if (!sent) {
-      const { error } = await db().auth.signInWithOtp({
-        email: email.trim(),
-        options: { shouldCreateUser: true },
-      });
-      if (error) throw error;
-      setSent(true);
-      setMessage(
-        "Check your email. Enter the verification code if supplied, or follow the sign-in link.",
+    const { error } = await db().auth.signInWithPassword({
+      email: usernameEmail(email),
+      password,
+    });
+    setPassword("");
+    if (error)
+      throw Error(
+        "Sign-in failed. Check your username/password or try again later.",
       );
-    } else {
-      const { error } = await db().auth.verifyOtp({
-        email: email.trim(),
-        token: code.trim(),
-        type: "email",
-      });
-      if (error) throw error;
-      await load();
-    }
+    await load();
   }
   async function check(file: File) {
     setResult(undefined);
@@ -160,6 +192,47 @@ export default function Home() {
       await doc.loadingTask.destroy();
     }
   }
+  function passwordForm() {
+    return (
+      <>
+        <label htmlFor="current-password">Current password</label>
+        <input
+          id="current-password"
+          type="password"
+          autoComplete="current-password"
+          value={currentPassword}
+          onChange={(e) => setCurrentPassword(e.target.value)}
+        />
+        <label htmlFor="new-password">New password (12–128 characters)</label>
+        <input
+          id="new-password"
+          type="password"
+          autoComplete="new-password"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+        />
+        <button
+          disabled={busy || !currentPassword || newPassword.length < 12}
+          onClick={() =>
+            action(async () => {
+              try {
+                await accountAction("change-password", {
+                  currentPassword,
+                  password: newPassword,
+                });
+                await load();
+              } finally {
+                setNewPassword("");
+                setCurrentPassword("");
+              }
+            })
+          }
+        >
+          Change password
+        </button>
+      </>
+    );
+  }
   return (
     <>
       <header>
@@ -200,29 +273,45 @@ export default function Home() {
           <section style={{ maxWidth: 500 }}>
             <h2>Sign in to your workspace</h2>
             <p>Only approved team members can access rules and save reviews.</p>
-            <label>Work email</label>
+            <label htmlFor="username">Username</label>
             <input
-              type="email"
+              id="username"
+              autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@company.com"
+              placeholder="Your username"
             />
-            {sent && (
-              <>
-                <label>Email verification code</label>
-                <input
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  autoComplete="one-time-code"
-                />
-              </>
-            )}
-            <button disabled={busy || !email} onClick={() => action(signIn)}>
-              {sent ? "Verify code" : "Send sign-in email"}
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <button
+              disabled={busy || !email || !password}
+              onClick={() => action(signIn)}
+            >
+              Sign in
             </button>
+            <p>
+              No registration. Ask your administrator for an account or a
+              password reset.
+            </p>
+          </section>
+        ) : role === "change-password" ? (
+          <section>
+            <h2>Change your temporary password</h2>
+            <p>You must set a new password before accessing quotations.</p>
+            {passwordForm()}
           </section>
         ) : (
           <>
+            <section>
+              <h2>Change your password</h2>
+              {passwordForm()}
+            </section>
             <div className="grid">
               <section>
                 <h2>Review a quotation</h2>
@@ -316,31 +405,91 @@ export default function Home() {
                   rule types and draft testing are not available in this initial
                   release.
                 </p>
-                <label>Add sales team member</label>
+                <h2>Manage sales accounts</h2>
+                <label htmlFor="new-username">Username</label>
                 <input
-                  type="email"
+                  id="new-username"
                   value={invite}
                   onChange={(e) => setInvite(e.target.value)}
-                  placeholder="colleague@company.com"
+                  placeholder="e.g. sales.jane"
+                />
+                <label htmlFor="temporary-password">
+                  Temporary password (12–128 characters)
+                </label>
+                <input
+                  id="temporary-password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={temporary}
+                  onChange={(e) => setTemporary(e.target.value)}
                 />
                 <button
-                  disabled={busy || !invite.includes("@")}
+                  disabled={busy || !invite || temporary.length < 12}
                   onClick={() =>
                     action(async () => {
-                      const r = await db().from("members").insert({
-                        email: invite.trim().toLowerCase(),
-                        role: "sales",
-                      });
-                      if (r.error) throw r.error;
-                      setInvite("");
-                      setMessage(
-                        "Team member added. They can now sign in using their email.",
-                      );
+                      try {
+                        await accountAction("create", {
+                          username: invite,
+                          password: temporary,
+                        });
+                      } finally {
+                        setTemporary("");
+                      }
                     })
                   }
                 >
-                  Grant sales access
+                  Create sales account
                 </button>
+                <button
+                  disabled={busy || !invite || temporary.length < 12}
+                  onClick={() =>
+                    action(async () => {
+                      try {
+                        await accountAction("reset", {
+                          username: invite,
+                          password: temporary,
+                        });
+                      } finally {
+                        setTemporary("");
+                      }
+                    })
+                  }
+                >
+                  Reset password
+                </button>
+                <button
+                  disabled={busy || !invite}
+                  onClick={() =>
+                    action(() => accountAction("disable", { username: invite }))
+                  }
+                >
+                  Disable account
+                </button>
+                <button
+                  disabled={busy || !invite}
+                  onClick={() =>
+                    action(() => accountAction("enable", { username: invite }))
+                  }
+                >
+                  Enable account
+                </button>
+                <button
+                  disabled={busy}
+                  onClick={() => action(() => accountAction("list"))}
+                >
+                  Refresh account list
+                </button>
+                <ul>
+                  {accountList.map((m) => (
+                    <li key={m.email}>
+                      {m.email.split("@")[0]} · {m.role} ·{" "}
+                      {m.active ? "Active" : "Disabled"}
+                      {m.must_change_password
+                        ? " · Password change required"
+                        : ""}
+                    </li>
+                  ))}
+                </ul>
               </section>
             )}
           </>

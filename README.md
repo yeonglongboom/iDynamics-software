@@ -4,15 +4,16 @@ Internal Next.js + Supabase initial implementation. **Not a complete quotation v
 
 ## Setup
 
-1. In the connected Supabase project's SQL Editor, replace `replace-with-admin-email@example.com` with your administrator email and run `supabase/schema.sql` once. It enables row-level security, installs the initial administrator access entry, and creates immutable rule versions.
-2. In Supabase Authentication > URL Configuration, set Site URL to the deployed application URL. Add only trusted redirect URLs. If using preview deployments, explicitly allow their URLs rather than broadly allowing arbitrary hosts.
-3. Confirm the integration provides `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Never expose a secret/service-role key as a public variable.
-4. Supabase Authentication > Email Templates > Magic Link can use `{{ .Token }}` to send a verification code. Default magic links also work when Site URL is set correctly. Production email delivery may require configuring an SMTP provider. No credentials belong in GitHub.
-5. `npm ci`, `npm test`, `npm run build`; deploy after setup. Initial admin signs in with their configured email; the admin page grants sales access. Unlisted accounts can authenticate with Supabase but RLS denies application data access.
+1. For a fresh database run `supabase/schema.sql` first. Existing installations must **not** rerun it. Then run `supabase/002-username-accounts.sql` once. This migrates the existing admin membership to username `admin` and adds server-enforced access/password-change flags.
+2. In Supabase Authentication > Users > Add user > Create new user, create `admin@accounts.internal.invalid` with **Auto Confirm User** enabled and a strong private password (at least 12 characters). This is an internal identifier, not a real mailbox. Sign into the app using username `admin`. Never share the password in chat or commit it.
+3. In Authentication > Sign In / Providers disable **Allow new users to sign up**. Keep the Email/password provider enabled. The app uses internal identifiers with Supabase password auth; no SMTP, email links, or email verification is used. Do not send invites from the Supabase dashboard.
+4. Vercel must have `NEXT_PUBLIC_SUPABASE_URL` plus `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or `NEXT_PUBLIC_SUPABASE_ANON_KEY`). Server-only account operations require `SUPABASE_SECRET_KEY` or `SUPABASE_SERVICE_ROLE_KEY`. Use the integration's existing secret if present; otherwise set it directly in Vercel Project Settings > Environment Variables for trusted environments. **Never prefix a secret/service-role key with NEXT_PUBLIC_.** Do not expose it in chat. Redeploy after changing variables. Only trusted code branches should have access to these credentials.
+5. Admin > Manage sales accounts creates usernames and temporary passwords, resets passwords, and enables/disables access. Share temporary passwords through an approved private channel. Users must change them before reading rules or saving reviews. Flags are enforced by RLS from database state, including for pre-existing sessions. Admin membership cannot be managed by sales users. The initial admin cannot disable/reset itself via sales management; admin recovery requires a trusted Supabase operator.
+6. `npm ci`, `npm test`, `npm run build`. Local build and unit tests do not verify live Supabase sign-in, RLS, email-provider settings, or account operations. Test the migration and a sales account on the deployed preview before production use. Supabase Auth rate limits apply to password verification; there is no public registration UI.
 
 ## Implemented
 
-- Email sign-in; RLS-enforced sales/admin access.
+- Username/password sign-in, admin-created sales accounts, mandatory temporary-password changes, account resets and disable/enable controls; RLS-enforced sales/admin access.
 - Browser-local PDF text extraction (10 MB / 30 pages). PDFs are not uploaded or retained.
 - Required-text indicators and exact training-validity checks.
 - Versioned training rule changes and review records, scoped to uploader or admin.
