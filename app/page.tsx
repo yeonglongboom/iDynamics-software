@@ -8,7 +8,7 @@ let client: SupabaseClient | undefined;
 function db() {
   if (!client) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL,
-      key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+      key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!url || !key)
       throw Error(
         "Supabase connection is not configured. Contact your administrator.",
