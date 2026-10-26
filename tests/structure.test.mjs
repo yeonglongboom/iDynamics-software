@@ -31,11 +31,12 @@ test("column spillover warning is tentative", () => {
       cell("Qty", 300, 500),
       cell("Amount", 520, 500),
       cell("long description", 40, 450, 300),
+      cell("1.00", 295, 450, 20),
     ],
     box,
     1,
   );
-  assert.ok(f.some((x) => x.message.includes("legitimate full-width")));
+  assert.ok(f.some((x) => x.message.includes("occupied quantity")));
 });
 test("rotated text explicitly excluded", () => {
   const c = cell("rotated", 10, 10);
@@ -50,4 +51,33 @@ test("absence of warnings never claims layout passed", () => {
   const f = structureWarnings([cell("text ".repeat(40), 40, 300, 200)], box, 1);
   assert.ok(f.every((x) => x.state !== "Passed"));
   assert.ok(f.some((x) => x.message.includes("not a layout pass")));
+});
+
+test("description in the inter-column gap does not trigger collision", () => {
+  const f = structureWarnings(
+    [
+      cell("Description", 40, 500, 60),
+      cell("Qty", 300, 500),
+      cell("Amount", 520, 500),
+      cell("wrapped description", 40, 450, 240),
+      cell("1.00", 295, 450, 20),
+    ],
+    box,
+    1,
+  );
+  assert.ok(!f.some((x) => x.message.includes("occupied quantity")));
+});
+test("full-width heading without quantity on its baseline is not a collision", () => {
+  const f = structureWarnings(
+    [
+      cell("Description", 40, 500, 60),
+      cell("Qty", 300, 500),
+      cell("Amount", 520, 500),
+      cell("section heading", 40, 475, 400),
+      cell("1.00", 295, 450, 20),
+    ],
+    box,
+    1,
+  );
+  assert.ok(!f.some((x) => x.message.includes("occupied quantity")));
 });
