@@ -1,3 +1,4 @@
+import { structureWarnings } from "./structure.mjs";
 import { extractTable, type Table } from "./table.mjs";
 export async function extractPdfDetails(file: File) {
   if (file.size > 10 * 1024 * 1024) throw Error("Maximum PDF size is 10 MB.");
@@ -12,9 +13,15 @@ export async function extractPdfDetails(file: File) {
     if (doc.numPages > 30) throw Error("Maximum length is 30 pages.");
     const pages: string[] = [];
     const tables: Table[] = [];
+    const structure: ReturnType<typeof structureWarnings> = [];
     for (let n = 1; n <= doc.numPages; n++) {
       const page = await doc.getPage(n),
         content = await page.getTextContent();
+      const textItems = content.items.filter(
+        (item): item is import("pdfjs-dist/types/src/display/api").TextItem =>
+          "str" in item,
+      );
+      structure.push(...structureWarnings(textItems, page.view, n));
       tables.push(
         extractTable(
           content.items.filter(
@@ -35,7 +42,7 @@ export async function extractPdfDetails(file: File) {
           .join(""),
       );
     }
-    return { pages, tables };
+    return { pages, tables, structure };
   } finally {
     await task.destroy();
   }

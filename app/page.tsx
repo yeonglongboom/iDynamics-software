@@ -148,7 +148,7 @@ export default function Home() {
   async function check(file: File) {
     setResult(undefined);
     if (!rule) throw Error("Rules have not loaded.");
-    const { pages, tables } = await extractPdfDetails(file);
+    const { pages, tables, structure } = await extractPdfDetails(file);
     const references = await db().rpc("active_reference_checks");
     if (references.error)
       throw Error(
@@ -173,7 +173,7 @@ export default function Home() {
             }
           : f,
       );
-    checked.findings.push(...tableFindings(tables, pages));
+    checked.findings.push(...tableFindings(tables, pages), ...structure);
     checked.findings.push(
       ...applyReferenceChecks(pages, references.data ?? []),
     );
