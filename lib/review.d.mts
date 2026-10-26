@@ -4,6 +4,8 @@ export function reviewText(
 ): {
   status: string;
   findings: {
+    category?: string;
+    state?: string;
     page: number | null;
     message: string;
     error?: boolean;

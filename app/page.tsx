@@ -155,6 +155,24 @@ export default function Home() {
         "Reference checks could not be loaded. Complete the library database setup before reviewing.",
       );
     const checked = reviewText(pages, rule.training_months);
+    const positionalRows = tables.reduce((n, t) => n + t.rows.length, 0);
+    if (positionalRows > 0)
+      checked.findings = checked.findings.map((f) =>
+        f.message.startsWith("Arithmetic coverage:")
+          ? {
+              ...f,
+              message: f.message
+                .replace(
+                  /, \d+ isolated line row\(s\) checked/,
+                  " checked by summary parser",
+                )
+                .replace(
+                  "Other rows, item-to-subtotal reconciliation, tax eligibility and adjustments require human review.",
+                  "Line calculations and subtotal coverage are reported separately below; tax eligibility and adjustments remain unverified.",
+                ),
+            }
+          : f,
+      );
     checked.findings.push(...tableFindings(tables, pages));
     checked.findings.push(
       ...applyReferenceChecks(pages, references.data ?? []),
@@ -330,9 +348,24 @@ export default function Home() {
                 {result && (
                   <div>
                     <h2 className="status">{result.status}</h2>
-                    <ul>
+                    <p>
+                      “Passed” applies only to the individual check
+                      described—not approval of the quotation.
+                    </p>
+                    <ul className="review-checklist">
                       {result.findings.map((f, i) => (
                         <li key={i}>
+                          <span
+                            className={`check-badge ${f.error ? "failed" : f.state === "Passed" ? "passed" : "review"}`}
+                          >
+                            {f.state ??
+                              (f.error
+                                ? "Failed"
+                                : f.uncertain
+                                  ? "Needs review"
+                                  : "Coverage")}
+                          </span>
+                          {f.category && <strong>{f.category} · </strong>}
                           {f.page && <strong>Page {f.page}: </strong>}
                           {f.message}
                         </li>

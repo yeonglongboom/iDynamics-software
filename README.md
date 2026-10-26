@@ -52,3 +52,9 @@ Local verification: all five supplied PDFs were parsed using PDF.js, yielding ro
 ## App brand palette
 
 UI theme uses the supplied Outrageous Orange `#FF6634`, Rodeo Dust `#C7A685`, Coral `#FF855D`, Bleach White `#EBDECB`, Aero Blue `#C1DBD0`, and Atoll `#218288`. Primary actions use orange with dark text; Atoll provides focus/heading accents; Aero Blue provides notice backgrounds. Brand colours are centralized as CSS variables. These colours style the app only, not quotation acceptance rules. Fonts and logo were not supplied and have not been invented as brand assets.
+
+## Review checklist
+
+Results now display per-check badges (Passed, Failed, Needs review, Not checked, or Coverage). Passed means only the described check passed, never overall quotation approval. Required labelled text checks cover quotation number/date, salesperson, work contact, payment, validity, delivery and terms heading; detected values are presence checks, not truth/date-format/business validation. Missing or unreadable values are Needs review, not automatic rejection. Customer identity/address/contact accuracy is explicitly Not checked because the existing unlabelled block cannot be reliably distinguished from supplier details. Visual/structural checks remain unimplemented.
+
+When position-based rows are detected, the old isolated-text zero-row message is replaced with summary-only coverage; positional coverage remains separate. Saved findings include any checklist labels, while older records remain unchanged. No SQL migration required. Unit tests cover labelled values, page location, empty labels and avoiding supplier-as-customer claims. Live browser checklist confirmation is pending.
