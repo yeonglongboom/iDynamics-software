@@ -309,8 +309,9 @@ export default function Home() {
                 <h2>Review a quotation</h2>
                 <p>
                   Upload a PDF, up to 10 MB / 30 pages. This initial version
-                  checks extracted text and training validity. It does not yet
-                  perform full visual or arithmetic validation.
+                  checks text, training validity, supported monetary summaries
+                  and isolated numeric rows. It does not yet perform full visual
+                  or comprehensive arithmetic validation.
                 </p>
                 <label>Quotation PDF</label>
                 <input
