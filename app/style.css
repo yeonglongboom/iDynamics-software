@@ -9,18 +9,19 @@
   --ink: #202521;
   --muted-ink: #51594f;
   --surface: #ffffff;
+  --page-background: #fff7ea;
 }
 * {
   box-sizing: border-box;
 }
 body {
   margin: 0;
-  background: var(--brand-bleach-white);
+  background: var(--page-background);
   color: var(--ink);
   font-family: Arial, sans-serif;
 }
 header {
-  background: var(--brand-bleach-white);
+  background: var(--page-background);
   color: var(--ink);
   border-bottom: 6px solid var(--brand-orange);
   padding: 24px 6%;
