@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { referenceProfile } from "../lib/reference-profile.mjs";
 import { extractPdf } from "../lib/pdf";
 type Ref = {
   id: string;
@@ -9,6 +10,7 @@ type Ref = {
   label: string;
   reason: string;
   confirmed: boolean;
+  profile?: { version: number; features: string[] };
 };
 type Check = {
   id: string;
@@ -83,16 +85,14 @@ export default function ReferenceLibrary({
           .from("quotation-references")
           .upload(path, f, { contentType: "application/pdf", upsert: false });
         if (up.error) throw up.error;
-        const saved = await client
-          .from("quotation_references")
-          .insert({
-            id,
-            filename: f.name,
-            storage_path: path,
-            label,
-            reason: reason.trim(),
-            created_by: user.id,
-          });
+        const saved = await client.from("quotation_references").insert({
+          id,
+          filename: f.name,
+          storage_path: path,
+          label,
+          reason: reason.trim(),
+          created_by: user.id,
+        });
         if (saved.error) {
           const clean = await client.storage
             .from("quotation-references")
@@ -196,6 +196,37 @@ export default function ReferenceLibrary({
             >
               {r.confirmed ? "Withdraw" : "Confirm reference"}
             </button>
+            <button
+              disabled={busy}
+              onClick={() =>
+                run(async () => {
+                  const d = await client.storage
+                    .from("quotation-references")
+                    .download(r.storage_path);
+                  if (d.error) throw d.error;
+                  const pages = await extractPdf(
+                    new File([d.data], r.filename, { type: "application/pdf" }),
+                  );
+                  const p = referenceProfile(pages);
+                  if (p.features.length < 4)
+                    throw Error(
+                      "Too few readable headings; profile not saved. Inspect this PDF.",
+                    );
+                  const saved = await client
+                    .from("quotation_references")
+                    .update({ profile: p })
+                    .eq("id", r.id);
+                  if (saved.error) throw saved.error;
+                  setMessage(
+                    "Profile prepared. Only feature names are shared with sales; confirmed Approved profiles are consulted automatically.",
+                  );
+                })
+              }
+            >
+              {r.profile
+                ? "Refresh comparison profile"
+                : "Prepare comparison profile"}
+            </button>
           </li>
         ))}
       </ul>
@@ -246,17 +277,15 @@ export default function ReferenceLibrary({
               data: { user },
             } = await client.auth.getUser();
             if (!user) throw Error("Sign in again.");
-            const r = await client
-              .from("reference_checks")
-              .insert({
-                reference_id: selected,
-                title: title.trim(),
-                kind,
-                phrase: phrase.trim(),
-                correction: correction.trim(),
-                created_by: user.id,
-                active: false,
-              });
+            const r = await client.from("reference_checks").insert({
+              reference_id: selected,
+              title: title.trim(),
+              kind,
+              phrase: phrase.trim(),
+              correction: correction.trim(),
+              created_by: user.id,
+              active: false,
+            });
             if (r.error) throw r.error;
             setMessage("Draft check saved. Review it below before activation.");
             setTitle("");

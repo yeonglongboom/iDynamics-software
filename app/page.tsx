@@ -5,6 +5,7 @@ import { usernameEmail } from "../lib/accounts.mjs";
 import ReferenceLibrary from "./reference-library";
 import { extractPdfDetails } from "../lib/pdf";
 import { applyReferenceChecks } from "../lib/reference-checks.mjs";
+import { compareProfiles } from "../lib/reference-profile.mjs";
 import { tableFindings } from "../lib/table.mjs";
 import { reviewText } from "../lib/review.mjs";
 type Rule = { id: number; training_months: number };
@@ -154,7 +155,18 @@ export default function Home() {
       throw Error(
         "Reference checks could not be loaded. Complete the library database setup before reviewing.",
       );
+    const profiles = await db().rpc("approved_reference_profiles");
     const checked = reviewText(pages, rule.training_months);
+    if (profiles.error)
+      checked.findings.push({
+        category: "Reference comparison",
+        state: "Not checked",
+        page: null,
+        message:
+          "Reference profile service unavailable. Complete migration 004; no reference comparison was performed.",
+        uncertain: true,
+      });
+    else checked.findings.push(...compareProfiles(pages, profiles.data ?? []));
     const positionalRows = tables.reduce((n, t) => n + t.rows.length, 0);
     if (positionalRows > 0)
       checked.findings = checked.findings.map((f) =>
@@ -193,6 +205,7 @@ export default function Home() {
         findings: checked.findings,
         reference_check_ids: (references.data ?? []).map((c) => c.id),
         reference_checks_snapshot: references.data ?? [],
+        reference_profiles_snapshot: profiles.data ?? [],
       });
     if (saved.error)
       throw Error(
