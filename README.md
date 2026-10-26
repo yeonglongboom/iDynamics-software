@@ -48,3 +48,7 @@ PDF extraction now preserves text coordinates and detects separate `#`, `Descrip
 Subtotal reconciliation is limited to a single complete table with sequential numbered rows and one subtotal. Differences are review notes (possible adjustments), not automatic rejection. Continuation tables, rotated text, combined header tokens, multiple tables, different formats, mixed tax eligibility and missing columns still require human review. This is not full visual layout validation or automatic reference matching. No database migration required.
 
 Local verification: all five supplied PDFs were parsed using PDF.js, yielding row counts 3, 1, 1, 2, 1 respectively; calculations had no mismatches and each subtotal reconciled. Customer files/text are not committed. Unit tests cover wrapped descriptions, missing/spanning cells, incorrect amounts and conservative reconciliation. Browser end-to-end confirmation remains necessary.
+
+## App brand palette
+
+UI theme uses the supplied Outrageous Orange `#FF6634`, Rodeo Dust `#C7A685`, Coral `#FF855D`, Bleach White `#EBDECB`, Aero Blue `#C1DBD0`, and Atoll `#218288`. Primary actions use orange with dark text; Atoll provides focus/heading accents; Aero Blue provides notice backgrounds. Brand colours are centralized as CSS variables. These colours style the app only, not quotation acceptance rules. Fonts and logo were not supplied and have not been invented as brand assets.
