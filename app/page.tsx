@@ -3,8 +3,9 @@ import { useEffect, useState } from "react";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { usernameEmail } from "../lib/accounts.mjs";
 import ReferenceLibrary from "./reference-library";
-import { extractPdf } from "../lib/pdf";
+import { extractPdfDetails } from "../lib/pdf";
 import { applyReferenceChecks } from "../lib/reference-checks.mjs";
+import { tableFindings } from "../lib/table.mjs";
 import { reviewText } from "../lib/review.mjs";
 type Rule = { id: number; training_months: number };
 type Result = ReturnType<typeof reviewText>;
@@ -147,13 +148,14 @@ export default function Home() {
   async function check(file: File) {
     setResult(undefined);
     if (!rule) throw Error("Rules have not loaded.");
-    const pages = await extractPdf(file);
+    const { pages, tables } = await extractPdfDetails(file);
     const references = await db().rpc("active_reference_checks");
     if (references.error)
       throw Error(
         "Reference checks could not be loaded. Complete the library database setup before reviewing.",
       );
     const checked = reviewText(pages, rule.training_months);
+    checked.findings.push(...tableFindings(tables, pages));
     checked.findings.push(
       ...applyReferenceChecks(pages, references.data ?? []),
     );
