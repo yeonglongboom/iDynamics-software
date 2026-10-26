@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { extractArchive } from "../lib/archive.mjs";
 import { referenceProfile } from "../lib/reference-profile.mjs";
 import { extractPdf } from "../lib/pdf";
 type Ref = {
@@ -10,6 +11,8 @@ type Ref = {
   label: string;
   reason: string;
   confirmed: boolean;
+  document_type?: string;
+  content_hash?: string;
   profile?: { version: number; features: string[] };
 };
 type Check = {
@@ -29,6 +32,7 @@ export default function ReferenceLibrary({
     [checks, setChecks] = useState<Check[]>([]),
     [files, setFiles] = useState<File[]>([]),
     [label, setLabel] = useState("Approved"),
+    [documentType, setDocumentType] = useState("Quotation"),
     [reason, setReason] = useState(""),
     [selected, setSelected] = useState(""),
     [title, setTitle] = useState(""),
@@ -66,6 +70,52 @@ export default function ReferenceLibrary({
       setBusy(false);
     }
   }
+  async function selectFiles(selectedFiles: File[]) {
+    setFiles([]);
+    let expanded: File[] = [];
+    const skipped: string[] = [];
+    for (const f of selectedFiles) {
+      if (/\.zip$/i.test(f.name)) {
+        if (f.size > 50 * 1024 * 1024)
+          throw Error("ZIP compressed size exceeds 50 MB.");
+        const result = extractArchive(new Uint8Array(await f.arrayBuffer()));
+        expanded.push(
+          ...result.files.map(
+            (e) =>
+              new File([new Uint8Array(e.data).buffer], e.name, {
+                type: "application/pdf",
+              }),
+          ),
+        );
+        skipped.push(...result.skipped);
+      } else expanded.push(f);
+    }
+    if (expanded.length > 50) throw Error("Select at most 50 PDFs per batch.");
+    if (expanded.reduce((n, f) => n + f.size, 0) > 100 * 1024 * 1024)
+      throw Error("Batch exceeds 100 MB total.");
+    const unique: File[] = [];
+    const hashes = new Set<string>();
+    for (const f of expanded) {
+      if (f.size > 10 * 1024 * 1024) throw Error(`${f.name}: exceeds 10 MB.`);
+      const hash = await fingerprint(f);
+      if (hashes.has(hash)) {
+        skipped.push(`${f.name} (duplicate within batch)`);
+        continue;
+      }
+      hashes.add(hash);
+      unique.push(f);
+    }
+    setFiles(unique);
+    setMessage(
+      `Preview ready: ${unique.length} PDFs. No upload or AI analysis has run.${skipped.length ? " Skipped: " + skipped.join(", ") : ""}`,
+    );
+  }
+  async function fingerprint(f: File) {
+    const hash = await crypto.subtle.digest("SHA-256", await f.arrayBuffer());
+    return Array.from(new Uint8Array(hash), (b) =>
+      b.toString(16).padStart(2, "0"),
+    ).join("");
+  }
   async function upload() {
     if (files.length > 50) throw Error("Upload at most 50 PDFs per batch.");
     if (label === "Rejected" && !reason.trim())
@@ -78,6 +128,20 @@ export default function ReferenceLibrary({
     for (const f of files) {
       let path = "";
       try {
+        const hash = await fingerprint(f);
+        const existing = await client
+          .from("quotation_references")
+          .select("id")
+          .eq("content_hash", hash)
+          .limit(1);
+        if (existing.error)
+          throw Error(
+            "Duplicate checking unavailable. Run migration 005 first.",
+          );
+        if (existing.data.length) {
+          results.push(`${f.name}: skipped (already uploaded)`);
+          continue;
+        }
         await extractPdf(f);
         const id = crypto.randomUUID();
         path = `${user.id}/${id}.pdf`;
@@ -92,6 +156,8 @@ export default function ReferenceLibrary({
           label,
           reason: reason.trim(),
           created_by: user.id,
+          document_type: documentType,
+          content_hash: hash,
         });
         if (saved.error) {
           const clean = await client.storage
@@ -119,9 +185,21 @@ export default function ReferenceLibrary({
       <h2>Admin · Reference Library</h2>
       <p>
         Private reference PDFs. Uploads are drafts; confirming an example does
-        not create rules or change review decisions. Only explicitly activated
-        checks below are consulted by the reviewer.
+        not create text rules. Confirmed Approved Quotation profiles are compared automatically; text checks below require explicit activation.
       </p>
+      <p>
+        No Claude calls run during ZIP extraction, upload or profile
+        preparation.
+      </p>
+      <label>Document type for this batch</label>
+      <select
+        value={documentType}
+        onChange={(e) => setDocumentType(e.target.value)}
+      >
+        <option>Quotation</option>
+        <option>Invoice</option>
+        <option>Unknown</option>
+      </select>
       <label>Batch label</label>
       <select value={label} onChange={(e) => setLabel(e.target.value)}>
         <option>Approved</option>
@@ -129,18 +207,37 @@ export default function ReferenceLibrary({
       </select>
       <label>Reason / context (required for rejected examples)</label>
       <textarea value={reason} onChange={(e) => setReason(e.target.value)} />
-      <label>PDFs · up to 50 per batch, 10 MB / 30 pages each</label>
+      <label>
+        PDFs or ZIP · 50 PDFs per batch; ZIP up to 50 MB; 100 MB extracted total
+      </label>
       <input
         type="file"
         multiple
-        accept="application/pdf,.pdf"
+        accept="application/pdf,.pdf,application/zip,.zip"
         disabled={busy}
-        onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+        onChange={(e) => {
+          const chosen = Array.from(e.target.files ?? []);
+          e.target.value = "";
+          run(() => selectFiles(chosen));
+        }}
       />
       <p>
         {files.length} file(s) selected. Files in a batch share the label and
         reason; separate them when reasons differ.
       </p>
+      <ul>
+        {files.map((f, i) => (
+          <li key={`${f.name}-${i}`}>
+            {f.name} · {(f.size / 1024 / 1024).toFixed(2)} MB{" "}
+            <button
+              disabled={busy}
+              onClick={() => setFiles(files.filter((_, n) => n !== i))}
+            >
+              Exclude
+            </button>
+          </li>
+        ))}
+      </ul>
       <button disabled={busy || !files.length} onClick={() => run(upload)}>
         Upload drafts
       </button>
@@ -158,6 +255,28 @@ export default function ReferenceLibrary({
             <strong>{r.filename}</strong> · {r.label} ·{" "}
             {r.confirmed ? "Confirmed" : "Draft"}
             <p>{r.reason}</p>
+            <label>Document type (admin classified)</label>
+            <select
+              value={r.document_type ?? "Unknown"}
+              disabled={busy}
+              onChange={(e) => {
+                const value = e.target.value;
+                run(async () => {
+                  const saved = await client
+                    .from("quotation_references")
+                    .update({ document_type: value })
+                    .eq("id", r.id);
+                  if (saved.error) throw saved.error;
+                  setMessage(
+                    "Type saved. Only Quotation references can participate in quotation comparison.",
+                  );
+                });
+              }}
+            >
+              <option>Unknown</option>
+              <option>Quotation</option>
+              <option>Invoice</option>
+            </select>
             <button
               disabled={busy}
               onClick={() =>
